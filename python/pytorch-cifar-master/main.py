@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 
 import torchvision
 import torchvision.transforms as transforms
-
+from load import loadCIFAR10
 import os
 import argparse
 
@@ -23,31 +23,6 @@ parser.add_argument('--resume', '-r', action='store_true', help='resume from che
 args = parser.parse_args()
 
 
-def loadCIFAR10(batchSize):
-    # Data
-    print('==> Preparing data..')
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    trainset = torchvision.datasets.CIFAR10(root='/disk1/zhangxu_new/data', train=True, download=True, transform=transform_train)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batchSize, shuffle=True, num_workers=1)
-
-    testset = torchvision.datasets.CIFAR10(root='/disk1/zhangxu_new/data', train=False, download=True, transform=transform_test)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batchSize, shuffle=False, num_workers=1)
-
-    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-    return trainloader, testloader
-
 
 def train(model, batchSize, epoch, useCuda=True,save_point=600,modelpath=''):
     train_losses = []
@@ -58,6 +33,7 @@ def train(model, batchSize, epoch, useCuda=True,save_point=600,modelpath=''):
     optimizer = optim.Adam(net.parameters(), lr=args.lr)
     trainLoader, testLoader = loadCIFAR10(batchSize=batchSize)
     step=0
+    step_test=0
     for i in range(epoch):
         # trainning
         sum_loss = 0
@@ -70,7 +46,7 @@ def train(model, batchSize, epoch, useCuda=True,save_point=600,modelpath=''):
 
             loss = ceriation(out, target)
             sum_loss += loss.data[0]
-            train_losses.append([sum_loss/(batch_idx+1),batch_idx+1])
+            train_losses.append([loss,step])
 
             loss.backward()
             optimizer.step()
@@ -91,7 +67,8 @@ def train(model, batchSize, epoch, useCuda=True,save_point=600,modelpath=''):
             out = model(x)
             loss = ceriation(out, target)
             sum_loss+=loss.data[0]
-            test_losses.append([sum_loss/(batch_idx+1),batch_idx+1])
+            test_losses.append([loss.data[0],step_test])
+            step_test+=1
             _, pred_label = torch.max(out.data, 1)
             total_cnt += x.data.size()[0]
             correct_cnt += (pred_label == target.data).sum()
@@ -101,24 +78,34 @@ def train(model, batchSize, epoch, useCuda=True,save_point=600,modelpath=''):
                 print('==>>> epoch: {}, batch index: {}, test loss: {:.6f}, acc: {:.3f}'.format(
                     i, batch_idx + 1, sum_loss/(batch_idx+1), correct_cnt * 1.0 / total_cnt))
 
-
     return test_losses,train_losses
 def plot_loss(train,test):
     import matplotlib.pyplot as plt
     plt.switch_backend('agg')
+    x1=[]
+    y1=[]
     for loss,index in train:
-
-        plt.plot(index,loss,"b--",linewidth=1)
-        plt.xlabel("training epoches")
-        plt.ylabel("loss")
-        plt.title("training loss")
-        plt.savefig("./save/train_loss.jpg")
+        x1.append(index)
+        y1.append(loss)
+    plt.plot(x1,y1,marker='*',mec='r',mfc='w')
+    plt.legend()
+    plt.xlabel("training epoches")
+    plt.ylabel("loss")
+    plt.title("training loss")
+    plt.show()
+    plt.savefig("./save/train_loss.jpg")
+    plt.close()
+    x2=[]
+    y2=[]
     for loss,index in test:
-        plt.plot(index,loss,"b--",linewidth=1)
-        plt.xlabel("test epoches")
-        plt.ylabel("loss")
-        plt.title("test loss")
-        plt.savefig("./save/test_loss.jpg")
+        x2.append(index)
+        y2.append(loss)
+    plt.plot(x2,y2,"b--",linewidth=1)
+    plt.xlabel("test epoches")
+    plt.ylabel("loss")
+    plt.title("test loss")
+    plt.savefig("./save/test_loss.jpg")
+    plt.close()
 
 if __name__ == '__main__':
     # Model
@@ -150,6 +137,4 @@ if __name__ == '__main__':
     model_path="/home/zhangxu/python_project/test/save/new_model.pt"
     train_loss,test_loss=train(model=net, epoch=10, batchSize=128, useCuda=use_cuda,save_point=600,modelpath=model_path)
     plot_loss(train_loss,test_loss)
-
-
 

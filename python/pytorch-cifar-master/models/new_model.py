@@ -13,35 +13,56 @@ class ShuffleBlock(nn.Module):
     def forward(self, x):
         '''Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]'''
         N,C,H,W = x.size()
+
         g = self.groups
-        return x.view(N,g,C/g,H,W).permute(0,2,1,3,4).contiguous().view(N,C,H,W)
+        return x.view(N,g,int(C/g),H,W).permute(0,2,1,3,4).contiguous().view(N,C,H,W)
 
 class Bottleneck(nn.Module):
     def __init__(self, in_planes, growth_rate):
         super(Bottleneck, self).__init__()
+
+        planes=4*growth_rate
+        groups=2
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, 4*growth_rate, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(4*growth_rate)
-        self.conv2 = nn.Conv2d(4*growth_rate, 4*growth_rate, kernel_size=3, groups=4*growth_rate,padding=1, bias=False)
-        self.bn3=nn.BatchNorm2d(4*growth_rate)
-        self.conv3=nn.Conv2d(4*growth_rate,growth_rate,kernel_size=1,bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1,groups=groups, bias=False)
+        self.shuffle1=ShuffleBlock(groups)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes,planes, kernel_size=3, groups=planes,padding=1, bias=False)
+        self.shuffle2 = ShuffleBlock(planes)
+        self.bn3=nn.BatchNorm2d(planes)
+        self.conv3=nn.Conv2d(planes,growth_rate,kernel_size=1,groups=groups,bias=False)
+
+    def forward(self, x):
+        out = self.conv1(F.relu(self.bn1(x)))
+        out=self.shuffle1(out)
+        out = self.conv2(F.relu(self.bn2(out)))
+        out = self.shuffle2(out)
+        out = self.conv3(F.relu(self.bn3(out)))
+        out = torch.cat([out,x], 1)
+        return out
+
+
+class Transition(nn.Module):
+    def __init__(self, in_planes, out_planes):
+        super(Transition, self).__init__()
+        #self.bn = nn.BatchNorm2d(in_planes)
+        #self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=False)
+
+        planes=4*in_planes
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
+
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=2, padding=1, groups=planes, bias=False)
+
+        self.bn3 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
+
 
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x)))
         out = self.conv2(F.relu(self.bn2(out)))
         out = self.conv3(F.relu(self.bn3(out)))
-        out = torch.cat([out,x], 1)
-        return out
-
-class Transition(nn.Module):
-    def __init__(self, in_planes, out_planes):
-        super(Transition, self).__init__()
-        self.bn = nn.BatchNorm2d(in_planes)
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=False)
-
-    def forward(self, x):
-        out = self.conv(F.relu(self.bn(x)))
-        out = F.avg_pool2d(out, 2)
         return out
 
 
@@ -98,7 +119,7 @@ class NewmModel(nn.Module):
 
 
 def NewModel1():
-    return NewmModel(Bottleneck, [5,5,6,5], growth_rate=32)
+    return NewmModel(Bottleneck, [3,5,6,4], growth_rate=32)
 
 def test():
     net = NewModel1()
